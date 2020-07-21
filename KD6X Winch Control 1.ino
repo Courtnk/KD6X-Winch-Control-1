@@ -3,7 +3,7 @@
     Created:	3/1/2019 11:55:12 PM
     Author:     Courtney E. Krehbiel
 	
-	Moto-Mast Firmware Ver. 1.10				* * * UPDATE DISPLAY ON APPROX. LINE 167 * * * 
+	Moto-Mast Firmware Ver. 1.12				* * * UPDATE DISPLAY ON APPROX. LINE 172 * * * 
 */
 
 /*
@@ -94,6 +94,7 @@ float RunHeight = 0.00f;		// Running height
 float ShaftCount;				// Counter to keep track of shaft rotations
 float OldShaftCount;			// Previous value of ShaftCount
 float SetHeight = 20.00f;		// Height target that's set by setup
+int TurnMultiCount = 0;			// Counter to keep track of a group of shaft turns.  Allows serial height output every 10th turn.
 byte Direction = HIGH;			// 1 = up, 0 = down
 byte LimitDirection = LOW;		// Stores the direction of the limit hit.  Going up or down.
 byte LimitMode = LOW;			// Limit mode LOW = Read input; mode HIGH = Write Output;
@@ -168,7 +169,7 @@ void setup() {
 	tft.setFont(&FreeMono9pt7b);		// Switch to font
 	tft.setTextSize(0);
 	tft.setCursor(10, 20);
-	tft.println(F("Moto-Mast Firmware Ver. 1.10"));				//	<========================================================  Update this when finished with editing
+	tft.println(F("Moto-Mast Firmware Ver. 1.12"));				//	<========================================================  Update this when finished with editing
 	delay(2000);
 	tft.fillScreen(ILI9341_NAVY);		// Erase screen 
 
@@ -229,12 +230,14 @@ void loop() {
 	if (RunActive) {
 		DeadManKeepAlive += 1;		// Increment the keep-alive.  If the motor is running normally, this should periodically be reset to 0 by the Shaft Rotation interrupt.
 
-		if (DeadManKeepAlive >= 350) {		// Uhh oh.  Something went wrong and we need to regroup and kill any remaining motor functions.  Threshhold needs to be low enought to recover in a reasonable time
-			// But not so low that a very slowly running motor will trigger this.
+		if (DeadManKeepAlive >= 350) {		// Uhh oh.  Something went wrong and we need to regroup and kill any remaining motor functions.  
+			// Threshhold needs to be low enought to recover in a reasonable time.  But not so low that a very slowly running motor will trigger this.
 
 			// First, let's save the shaftcount in it's special "stopped" place so the height can be recovered during a reboot.
 			EEPROM.put(0, ShaftCount);	// Save turning off height in special location 0 in EEPROM
 			OldShaftCount = ShaftCount;
+
+			Serial.println(RunHeight);  // Send final height to serial port
 
 			// Now to clean things up a bit so program doesn't hang in an eternal loop.
 			VOn48 = LOW;
@@ -246,7 +249,6 @@ void loop() {
 			DeadManKeepAlive = 0;  // Reset this back to zero so next restart starts with a full clock
 			Stall = HIGH;		// Set the Limit indicator to show a stall condition.  This will get cleared at the next button push.
 			DrawLights();
-
 		}
 	}
 
@@ -359,10 +361,18 @@ void ShaftRotation() {	// Increment or decrement a counter each time the motor s
 		}
 	}
 
-
-
 	EEPROM.put(eeAddress, ShaftCount);		// Temporarily store ShaftCount in randomly chosen EEPROM address.  Do I need this?  How would I use it?
 	DisplayCurrentHeight(ShaftCount);		// Hopefully this doesn't bog down the interrupt handling
+
+	// Adding capability to send infrequent height status to serial port.
+	if (TurnMultiCount >= 11) {
+		Serial.println(RunHeight);			// Send height to the serial port after every 10 motor revolutions
+		TurnMultiCount = 0;					// Reset the counter
+	}
+	else {
+		++TurnMultiCount;					// Increment the counter
+	}
+
 
 	if (NeedMotorTurns) {					// If we're recovering from a limit and just need a few revs, this will be >0  ie: 3
 		NeedMotorTurns -= 1;				// Decrement the counter
@@ -395,13 +405,13 @@ byte SerialCheck() {
 }
 
 byte ParseSerialString() {
-	Serial.println(SerialInput);					// Echo string back during test
+	Serial.println(SerialInput);					// Echo string back during test.  Remove after dev
 	StrCommand = SerialInput.substring(0, 3);		// Parse the command string
-	Serial.println(StrCommand);
+	// Serial.println(StrCommand);
 
 	if (StrCommand == "SD#") {						// SET DIRECTION
 		StrValue = SerialInput.substring(3, 6);
-		Serial.println(StrValue);					// Can remove this after dev
+		// Serial.println(StrValue);					// Can remove this after dev
 		if (StrValue == "000") {
 			Direction = 0;
 			Serial.println("Direction Down");
@@ -419,7 +429,7 @@ byte ParseSerialString() {
 
 	if (StrCommand == "SS#") {						// SET SPEED
 		StrValue = SerialInput.substring(3, 6);
-		Serial.println(StrValue);					// Can remove this after dev
+		// Serial.println(StrValue);					// Can remove this after dev
 		SerSpeed = StrValue.toInt();
 		if (SerSpeed < 0 || SerSpeed > 99) {
 			return;									// Abort if setting out of bounds
@@ -431,7 +441,7 @@ byte ParseSerialString() {
 
 	if (StrCommand == "SH#") {						// SET HEIGHT
 		StrValue = SerialInput.substring(3, 6);
-		Serial.println(StrValue);					// Can remove this after dev
+		// Serial.println(StrValue);					// Can remove this after dev
 		SerHeight= StrValue.toInt();
 		if (SerHeight < 10 || SerHeight> 27) {
 			return;									// Abort if setting out of bounds
@@ -1213,6 +1223,7 @@ void RunScenario() {	// Uses as inputs the global variables Direction, SetSpeed,
 				// Clean up will be done in the regular exit below 
 				RunActive = LOW;		// But have to let the regular routine know that it's time to exit.
 				Stall = HIGH;			// Set the flag to indicate failure due to stall
+				Serial.println(RunHeight);  // Send final height to serial port
 			}
 		}
 	}
@@ -1673,6 +1684,8 @@ byte SetMotorSpeed(int ms, int mset) {		// Input for ms and mset is 0 to 100 (pe
 
 		EEPROM.put(0, ShaftCount);	// Save turning off height in special location 0 in EEPROM
 		OldShaftCount = ShaftCount;
+
+		Serial.println(RunHeight);  // Send final height out to serial port.  Note, at bottom limit is active so this won't get hit.
 	}			
 	/*
 	Serial.println(F("Set Speed: "));  // Lets take a look
