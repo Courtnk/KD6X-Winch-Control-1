@@ -507,7 +507,7 @@ byte ParseSerialString() {
 		ButtonPushed[3] = LOW;
 		ActiveScreen[4] = HIGH;
 		DisplayRun();
-		Serial.println("Oper. = AutoUP");
+		Serial.println("Oper. = AutoDown");
 	}
 }
 
