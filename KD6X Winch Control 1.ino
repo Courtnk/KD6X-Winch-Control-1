@@ -3,7 +3,7 @@
     Created:	3/1/2019 11:55:12 PM
     Author:     Courtney E. Krehbiel
 	
-	Moto-Mast Firmware Ver. 1.12				* * * UPDATE DISPLAY ON APPROX. LINE 172 * * * 
+	Moto-Mast Firmware Ver. 1.14				* * * UPDATE DISPLAY ON APPROX. LINE 173 * * * 
 */
 
 /*
@@ -117,6 +117,7 @@ int SerSpeed;
 String SerialInput = "MyLongString";		// String to receive serial input for processing.  Just setting aside defined space.
 String StrCommand = "Short";
 String StrValue = "Short";
+byte SerialHalt = LOW;						// Flag to set high when halting run so the halt routine can be exited without a keystroke.
 
 
 
@@ -130,8 +131,8 @@ void setup() {
 	// Initialize RunHeight from EEPROM
 	randomSeed(analogRead(7));		// Ramdom number seed by reading unused port
 	eeAddress = random(10,4000);		// select a random address to avoid overusing one area of EEPROM
-	Serial.println(F("Random EEPROM address: "));  // Lets take a look
-	Serial.println(eeAddress); 
+	Serial.println((String)"Random EEPROM address: " + eeAddress);  // Lets take a look
+
 	/*
 	EEPROM.put(0, 0.00);	// Temporary Reset of count when active
 	*/
@@ -169,7 +170,8 @@ void setup() {
 	tft.setFont(&FreeMono9pt7b);		// Switch to font
 	tft.setTextSize(0);
 	tft.setCursor(10, 20);
-	tft.println(F("Moto-Mast Firmware Ver. 1.12"));				//	<========================================================  Update this when finished with editing
+	tft.println(F("Moto-Mast Firmware Ver. 1.14"));				//	<========================================================  Update this when finished with editing
+	Serial.println(F("Moto-Mast Firmware Ver. 1.14"));			// Also echo to serial port
 	delay(2000);
 	tft.fillScreen(ILI9341_NAVY);		// Erase screen 
 
@@ -189,7 +191,7 @@ void setup() {
 	// Do a CheckLimit function to catch case of limit fault upon powerup.  This is likely if the antenna is docked at the bottom.  Need to simulate a "Run Scenario"
 	RunActive = HIGH;
 	CheckLimit();		// Should only trigger Step 1 if limit is engaged.
-	Serial.println(F("Initialization Limit Check Completed"));
+	// Serial.println(F("Initialization Limit Check Completed"));
 	RunActive = LOW;
 
 }
@@ -248,6 +250,7 @@ void loop() {
 			RunningSlow = LOW;	// Set speed back to high.
 			DeadManKeepAlive = 0;  // Reset this back to zero so next restart starts with a full clock
 			Stall = HIGH;		// Set the Limit indicator to show a stall condition.  This will get cleared at the next button push.
+			Serial.println(F("Stall Detected"));  // Send final height to serial port
 			DrawLights();
 		}
 	}
@@ -365,8 +368,8 @@ void ShaftRotation() {	// Increment or decrement a counter each time the motor s
 	DisplayCurrentHeight(ShaftCount);		// Hopefully this doesn't bog down the interrupt handling
 
 	// Adding capability to send infrequent height status to serial port.
-	if (TurnMultiCount >= 11) {
-		Serial.println(RunHeight);			// Send height to the serial port after every 10 motor revolutions
+	if (TurnMultiCount >= 5) {
+		Serial.println(RunHeight);			// Send height to the serial port after every 5 motor revolutions
 		TurnMultiCount = 0;					// Reset the counter
 	}
 	else {
@@ -406,7 +409,8 @@ byte SerialCheck() {
 
 byte ParseSerialString() {
 	Serial.println(SerialInput);					// Echo string back during test.  Remove after dev
-	StrCommand = SerialInput.substring(0, 3);		// Parse the command string
+	StrCommand = SerialInput.substring(0, 3);
+		// Parse the command string
 	// Serial.println(StrCommand);
 
 	if (StrCommand == "SD#") {						// SET DIRECTION
@@ -414,18 +418,17 @@ byte ParseSerialString() {
 		// Serial.println(StrValue);					// Can remove this after dev
 		if (StrValue == "000") {
 			Direction = 0;
-			Serial.println("Direction Down");
+			Serial.println("Dir = Down");
 		}
 		else if (StrValue == "111") {
 			Direction = 1;
-			Serial.println("Direction Up");
+			Serial.println("Dir = Up");
 		}
 		else {
 			return;									// Abort if setting out of bounds
 		}
-
 		DisplayUpdate();
-	};
+	}
 
 	if (StrCommand == "SS#") {						// SET SPEED
 		StrValue = SerialInput.substring(3, 6);
@@ -437,7 +440,7 @@ byte ParseSerialString() {
 		SetSpeed = SerSpeed;
 		Serial.println((String)"SetSpd = " + SetSpeed);
 		DisplayUpdate();
-	};
+	}
 
 	if (StrCommand == "SH#") {						// SET HEIGHT
 		StrValue = SerialInput.substring(3, 6);
@@ -449,9 +452,64 @@ byte ParseSerialString() {
 		SetHeight = SerHeight;
 		Serial.println((String)"SetHt = " + SetHeight);
 		DisplayUpdate();
-	};
+	}
 
-};
+	if (StrCommand == "CR#") {						// CALL RUN -- same as pressing a key on front panel
+		ButtonPushed[4] = LOW;
+		ActiveScreen[4] = HIGH;
+		DisplayRun();
+		Serial.println("Oper. = RUN");
+		Serial.println((String)"Curr.Ht. = " + RunHeight);	// Print all current stats as run starts
+		Serial.println((String)"Set Ht. = " + SetHeight);
+		Serial.println((String)"Speed = " + SetSpeed);
+		Serial.println((String)"Direction = " + Direction);
+
+	}
+
+	if (StrCommand == "CH#") {						// CALL HALT 
+		Serial.println("Oper = HALT");			// Have to set up everything before calling the halt routine.  It's a tight loop, and won't receive additional commands while it's running.
+		SerialHalt = HIGH;
+		EmergencyHalt();						// Run the emergency halt routine.
+		DisplayRun();
+		SerialHalt = LOW;
+		Serial.println((String)"Halted at " + RunHeight + " ft.");
+	}
+
+	if (StrCommand == "GN#") {						// GET HEIGHT NOW  (Current height/RunHeight)
+		Serial.println((String)"Curr.Ht. = " + RunHeight);
+	}
+
+	if (StrCommand == "GH#") {						// GET SET HEIGHT  (Target height)
+		Serial.println((String)"Set Ht. = " + SetHeight);
+	}
+
+	if (StrCommand == "GS#") {						// GET SPEED
+		Serial.println((String)"Speed = " + SetSpeed);
+	}
+
+	if (StrCommand == "GD#") {						// GET DIRECTION
+		if (Direction) {
+			Serial.println("Dir. = Up");
+		}
+		else {
+			Serial.println("Dir. = Down");
+		}
+	}
+
+	if (StrCommand == "AU#") {						// AUTO UP -- same as pressing a key on front panel
+		ButtonPushed[2] = LOW;
+		ActiveScreen[4] = HIGH;
+		DisplayRun();
+		Serial.println("Oper. = AutoUP");
+	}
+
+	if (StrCommand == "AD#") {						// AUTO DOWN -- same as pressing a key on front panel
+		ButtonPushed[3] = LOW;
+		ActiveScreen[4] = HIGH;
+		DisplayRun();
+		Serial.println("Oper. = AutoUP");
+	}
+}
 
 
 /* Programming Actions for Screens */
@@ -785,7 +843,7 @@ byte RunActions() {
 		ResetButtons();			// Move this before any scenario to we can check for the HALT button
 		ActiveScreen[4] = HIGH;	// Probably didn't need to change the active screen since it stays the same. Keeping this in place to memorialize an epic bug in the code.
 		Direction = HIGH;		// Set the global variables automatically for full height
-		SetHeight = 25;			// Leave speed setting in place.  Assume we will mostly want to use the same speed most times.
+		SetHeight = 24;			// Leave speed setting in place.  Assume we will mostly want to use the same speed most times.
 		RunScenario();
 		DisplayRun();
 	}
@@ -1195,6 +1253,7 @@ void RunScenario() {	// Uses as inputs the global variables Direction, SetSpeed,
 	// Now we need to delay while the motor does its thing.  Positioning is being monitored by interrupt routines, so need to leave interrupts active all the time.
 	while (RunActive) {		// while the motor is running
 		CheckLimit();		// Interrupts may be working, but not cycling through main loop, so need to frequently check to see if limit switch has been hit.
+		SerialCheck();		// Also need to see if a serial halt command has been received while in this run loop.
 		SoftDelay(100);		// Wait 0.1 seconds and see if the motor is still running
 
 		if (!digitalRead(ButtonMap[5])) {		// Check for Emergency Halt during loop.  Button 5 is emergency halt and will go low.  Not depending on any interrupt processing here.
@@ -1221,9 +1280,10 @@ void RunScenario() {	// Uses as inputs the global variables Direction, SetSpeed,
 				OldShaftCount = ShaftCount;
 
 				// Clean up will be done in the regular exit below 
-				RunActive = LOW;		// But have to let the regular routine know that it's time to exit.
-				Stall = HIGH;			// Set the flag to indicate failure due to stall
-				Serial.println(RunHeight);  // Send final height to serial port
+				RunActive = LOW;						// But have to let the regular routine know that it's time to exit.
+				Stall = HIGH;							// Set the flag to indicate failure due to stall
+				Serial.println(F("Stall Detected"));	// Let serial port know too
+				Serial.println(RunHeight);				// Send final height to serial port
 			}
 		}
 	}
@@ -1247,6 +1307,7 @@ void RunScenario() {	// Uses as inputs the global variables Direction, SetSpeed,
 
 // Emergency Halt Subroutine
 void EmergencyHalt() {
+	int i = 15;
 	
 	digitalWrite(A0, LOW);	// Turn off 48 Volts instantly
 	VOn48 = LOW;		// Have to set the indicators to correctly indicate stopped conditioni
@@ -1273,6 +1334,12 @@ void EmergencyHalt() {
 	while (!AnyButtonPush) {
 		// Do nothing important and wait for a button to be pushed.  But have to allow interrupts to work!
 		SoftDelay(100);
+		if (SerialHalt) {			// Only do these steps if the halt command was initiated via serial port rather than front panel.
+			--i;
+			if (i <= 0) {
+				AnyButtonPush = HIGH;	// Allow about 1.5 seconds for halt to display on control panel, then exit the whole routine.
+			}
+		}
 	}
 // Then return to normal processing
 }
@@ -1385,7 +1452,7 @@ void CheckLimit() {		// Three Steps which are mutually exclusive and usually onl
 
 	// STEP1
 	if (RunActive & (!digitalRead(LimitInput)) & Step1) {	// Only check limits if motor is running.  If D8 is low, a limit switch has been opened
-	//	Serial.println(F("Limit hit sensed"));
+		// Serial.println(F("Limit hit sensed"));
 		Limit = LOW;		// Change Limit state to fault/red
 		DrawLights();			// Change display
 		LimitDirection = Direction;		// Capture which direction the mast was moving
@@ -1403,7 +1470,7 @@ void CheckLimit() {		// Three Steps which are mutually exclusive and usually onl
 		Step1 = LOW;
 		Step2 = HIGH;				// Now we're ready for the second step
 
-		Serial.println(F("Step1 Complete"));
+		Serial.println(F("Limit Active"));		// Let serial port know too
 	}
 
 	// STEP2 - Now further processing of limit recovery
@@ -1415,7 +1482,7 @@ void CheckLimit() {		// Three Steps which are mutually exclusive and usually onl
 		LimitMode = HIGH;				// Set flag that limit port is in temporary write mode
 		Step2 = LOW;					// Don't need to run this again and ready for 3rd step
 		Step3 = HIGH;
-		Serial.println(F("Step2 Complete"));
+		// Serial.println(F("Step2 Complete"));
 	}
 
 	// STEP3 - Now to check and see if it's time to return limit system to read after a few motor turns
@@ -1427,7 +1494,7 @@ void CheckLimit() {		// Three Steps which are mutually exclusive and usually onl
 			Step1 = HIGH;		// Limit has been dealt with so return system to armed condition
 			Limit = HIGH;		// Change Limit state to fault/red
 			DrawLights();			// Change display
-			Serial.println(F("Step3 Complete"));
+			// Serial.println(F("Step3 Complete"));
 		}
 	}
 }
@@ -1685,7 +1752,7 @@ byte SetMotorSpeed(int ms, int mset) {		// Input for ms and mset is 0 to 100 (pe
 		EEPROM.put(0, ShaftCount);	// Save turning off height in special location 0 in EEPROM
 		OldShaftCount = ShaftCount;
 
-		Serial.println(RunHeight);  // Send final height out to serial port.  Note, at bottom limit is active so this won't get hit.
+		Serial.println((String)"Stopped at Ht = " + RunHeight + " ft.");  // Send final height out to serial port.  Note, at bottom limit causes brake to engage so this won't get hit.
 	}			
 	/*
 	Serial.println(F("Set Speed: "));  // Lets take a look
