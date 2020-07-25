@@ -407,6 +407,22 @@ byte SerialCheck() {
 	}
 }
 
+/*	REMOTE CONTROL SERIAL COMMANDS
+
+		SH#nnn		Set Height to nnn
+		SS#nnn		Set Speed to nnn
+		SD#nnn		Set Direction - 000 = Down and 111 = Up
+		CR#			Command Run
+		CH#			Command HALT
+		AU#			Auto-Up to 24 feet
+		AD#			Auto-Down to 10 feet (fully nested)
+		GH#			Get set Height
+		GS#			Get Speed
+		GD#			Get Direction
+		GN#			Get Now (Current) Height
+
+*/
+
 byte ParseSerialString() {
 	Serial.println(SerialInput);					// Echo string back during test.  Remove after dev
 	StrCommand = SerialInput.substring(0, 3);
