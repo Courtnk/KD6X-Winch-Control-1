@@ -420,14 +420,20 @@ byte SerialCheck() {
 		GS#			Get Speed
 		GD#			Get Direction
 		GN#			Get Now (Current) Height
+		HL#			Reply with HELLO to confirm open port
 
 */
 
 byte ParseSerialString() {
-	Serial.println(SerialInput);					// Echo string back during test.  Remove after dev
+	// Serial.println(SerialInput);					// Echo string back during test.  Remove after dev
 	StrCommand = SerialInput.substring(0, 3);
 		// Parse the command string
 	// Serial.println(StrCommand);
+
+	if (StrCommand == "HL#") {						// REPLY HELLO
+		Serial.println("HELLO");
+	}
+
 
 	if (StrCommand == "SD#") {						// SET DIRECTION
 		StrValue = SerialInput.substring(3, 6);
