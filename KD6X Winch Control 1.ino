@@ -3,7 +3,7 @@
     Created:	3/1/2019 11:55:12 PM
     Author:     Courtney E. Krehbiel
 	
-	Moto-Mast Firmware Ver. 1.14				* * * UPDATE DISPLAY ON APPROX. LINE 173 * * * 
+	Moto-Mast Firmware Ver. 1.15				* * * UPDATE DISPLAY ON APPROX. LINE 173 * * * 
 */
 
 /*
@@ -170,8 +170,8 @@ void setup() {
 	tft.setFont(&FreeMono9pt7b);		// Switch to font
 	tft.setTextSize(0);
 	tft.setCursor(10, 20);
-	tft.println(F("Moto-Mast Firmware Ver. 1.14"));				//	<========================================================  Update this when finished with editing
-	Serial.println(F("Moto-Mast Firmware Ver. 1.14"));			// Also echo to serial port
+	tft.println(F("Moto-Mast Firmware Ver. 1.15"));				//	<========================================================  Update this when finished with editing
+	Serial.println(F("Moto-Mast Firmware Ver. 1.15"));			// Also echo to serial port
 	delay(2000);
 	tft.fillScreen(ILI9341_NAVY);		// Erase screen 
 
@@ -401,6 +401,9 @@ void ShaftRotation() {	// Increment or decrement a counter each time the motor s
 // Serial Check Subroutine -- Check to see if serial port input is available 
 byte SerialCheck() {
 	if (Serial.available() > 0) {
+		if (Stall) {
+			Stall = LOW;			// Reset the stall indicator on any serial input from PC... just like any button push at console.
+		}
 		// Get the string
 		SerialInput = Serial.readStringUntil('\n');		// Read the incoming serial string until newline char
 		ParseSerialString();							// Call a subroutine to parse the string and execute as appropriate
@@ -1221,6 +1224,9 @@ void RunScenario() {	// Uses as inputs the global variables Direction, SetSpeed,
 
 	interrupts();
 
+	SoftDelay(1000);				// Give 48 volts time to turn on and stabilize
+	BlockSpeedSensor = 0;		// Unblock speed sensor.
+
 	CheckLimit();			// Just to see if fault might have occurred now that RunActive is high and setting up for motor run.  This could trigger Step 1
 							// This takes care of a very unusual circumstance where limit is indicated after the circuit is initialized.
 	if (Step2) {
@@ -1229,9 +1235,6 @@ void RunScenario() {	// Uses as inputs the global variables Direction, SetSpeed,
 		RunActive = HIGH; 
 	}
 	
-	
-	SoftDelay(1000);				// Give 48 volts time to turn on and stabilize
-	BlockSpeedSensor = 0;		// Unblock speed sensor.
 	noInterrupts();
 	DrawLights();					// Update lights to show active running
 
@@ -1322,7 +1325,7 @@ void RunScenario() {	// Uses as inputs the global variables Direction, SetSpeed,
 	RunningSlow = LOW;	// Set speed back to high.
 	DeadManKeepAlive = 0;  // Reset this back to zero so next restart starts with a full clock
 	DrawLights();
-	// Serial.println(F("Scenario is exiting."));
+// Serial.println(F("Scenario is exiting."));
 
 }
 
@@ -1464,6 +1467,7 @@ void QuickLimitChk() {
 		if (Limit != LastLimitSetting) {	// Must have had a change in limit switch setting
 			DrawLights();					// No immediate action other than correctly updating indicator lights.  The heavy lifting is done when motor is running in CheckLimit routine below.
 			LastLimitSetting = Limit;		// Update the limit memory for next loop.
+			// Serial.println(F("QuickLimitCheck hit"));		// Let serial port know too
 		}
 	}
 }
@@ -1473,8 +1477,14 @@ void CheckLimit() {		// Three Steps which are mutually exclusive and usually onl
 //	Serial.println(F("Limit Check Active"));
 
 	// STEP1
-	if (RunActive & (!digitalRead(LimitInput)) & Step1) {	// Only check limits if motor is running.  If D8 is low, a limit switch has been opened
+	if (RunActive & (!digitalRead(LimitInput)) & Step1) {	// Only check limits if motor is running.  If D8 (LimitInput) is low, a limit switch has been opened
 		// Serial.println(F("Limit hit sensed"));
+		// Do a bit of transient protection
+		SoftDelay(25);
+		if (digitalRead(LimitInput)) {		// If it's gone back to high (non-limit state) in 25 ms, assume it was a transient
+			return;
+		}
+		Serial.println(F("Limit hit confirmed"));
 		Limit = LOW;		// Change Limit state to fault/red
 		DrawLights();			// Change display
 		LimitDirection = Direction;		// Capture which direction the mast was moving
@@ -1488,7 +1498,7 @@ void CheckLimit() {		// Three Steps which are mutually exclusive and usually onl
 		if (RunHeight > 22.0) {
 			LimitDirection = 1;		// Assume limit direction was up if near the top of the range when limit was hit
 		}
-		NeedMotorTurns = 3;			// Assume that three turns of the motor shaft in other direction will clear magnetic trip of limit switch
+		NeedMotorTurns = 4;			// Assume that four turns of the motor shaft in other direction will clear magnetic trip of limit switch
 		Step1 = LOW;
 		Step2 = HIGH;				// Now we're ready for the second step
 
@@ -1497,13 +1507,13 @@ void CheckLimit() {		// Three Steps which are mutually exclusive and usually onl
 
 	// STEP2 - Now further processing of limit recovery
 	if (!RunActive & (Direction != LimitDirection) & Step2) {	// Run has been stopped and direction changed
-		Limit = HIGH; 
-		DrawLights();	// Reset the limit indicators on the display
 		pinMode(LimitInput, OUTPUT);	// We're going to use the port as an output to force release of the brake
 		digitalWrite(LimitInput, HIGH);
 		LimitMode = HIGH;				// Set flag that limit port is in temporary write mode
 		Step2 = LOW;					// Don't need to run this again and ready for 3rd step
 		Step3 = HIGH;
+		Limit = HIGH;
+		DrawLights();	// Reset the limit indicators on the display
 		// Serial.println(F("Step2 Complete"));
 	}
 
@@ -1514,7 +1524,7 @@ void CheckLimit() {		// Three Steps which are mutually exclusive and usually onl
 			LimitMode = LOW;				// Reset limit port flag to signify it's in read
 			Step3 = LOW;
 			Step1 = HIGH;		// Limit has been dealt with so return system to armed condition
-			Limit = HIGH;		// Change Limit state to fault/red
+			Limit = HIGH;		// Change Limit state to green again
 			DrawLights();			// Change display
 			// Serial.println(F("Step3 Complete"));
 		}
