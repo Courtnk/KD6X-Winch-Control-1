@@ -3,7 +3,7 @@
     Created:	3/1/2019 11:55:12 PM
     Author:     Courtney E. Krehbiel
 	
-	Moto-Mast Firmware Ver. 1.10				* * * UPDATE DISPLAY ON APPROX. LINE 167 * * * 
+	Moto-Mast Firmware Ver. 1.16				* * * UPDATE DISPLAY ON APPROX. LINE 167 * * * 
 */
 
 /*
@@ -168,7 +168,7 @@ void setup() {
 	tft.setFont(&FreeMono9pt7b);		// Switch to font
 	tft.setTextSize(0);
 	tft.setCursor(10, 20);
-	tft.println(F("Moto-Mast Firmware Ver. 1.10"));				//	<========================================================  Update this when finished with editing
+	tft.println(F("Moto-Mast Firmware Ver. 1.16"));				//	<========================================================  Update this when finished with editing
 	delay(2000);
 	tft.fillScreen(ILI9341_NAVY);		// Erase screen 
 

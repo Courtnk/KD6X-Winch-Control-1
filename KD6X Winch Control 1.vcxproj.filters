@@ -21,5 +21,8 @@
     <ClInclude Include="__vm\.KD6X Winch Control 1.vsarduino.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="__vm\.KD6X-Winch-Control-1.vsarduino.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>
